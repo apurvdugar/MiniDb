@@ -13,6 +13,8 @@
 
 namespace minidb {
 
+bool CompareValues(const Value& lhs, const Value& rhs, CmpOp op);
+
 /*
  * Operator base class — Volcano-style iterator with batch output (Track A).
  * Each call to Next() returns a TupleBatch instead of a single row.
@@ -39,7 +41,7 @@ public:
 
 private:
     TableInfo*  table_;
-    std::vector<std::pair<RecordId, Row>> all_rows_;
+    std::vector<Row> all_rows_;
     size_t cursor_ = 0;
 };
 

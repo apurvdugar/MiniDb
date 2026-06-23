@@ -12,6 +12,8 @@ namespace minidb {
 struct TupleBatch {
     std::vector<Row> rows;
 
+    TupleBatch() { rows.reserve(BATCH_SIZE); }
+
     bool IsEmpty() const { return rows.empty(); }
     bool IsFull()  const { return rows.size() >= BATCH_SIZE; }
     size_t Size()  const { return rows.size(); }

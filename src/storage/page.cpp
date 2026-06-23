@@ -19,36 +19,18 @@ void Page::Init(page_id_t pid) {
 }
 
 uint16_t Page::FreeSpace() const {
-    // Space between end of slot directory and the next record offset
-    uint16_t slot_dir_end = HEADER_SIZE
-        + static_cast<uint16_t>(slots_.size()) * 6; // 6 bytes per slot entry (2+2+2)
-    if (free_offset_ < slot_dir_end) return 0;
-    return PAGE_SIZE - free_offset_ - static_cast<uint16_t>(slots_.size()) * 6;
+    const uint32_t directory = 2 + static_cast<uint32_t>(slots_.size()) * 6;
+    if (free_offset_ + directory >= PAGE_SIZE) return 0;
+    return static_cast<uint16_t>(PAGE_SIZE - free_offset_ - directory);
+}
+
+bool Page::HasSpace(uint16_t record_size) const {
+    bool reuses_slot = std::any_of(slots_.begin(), slots_.end(),
+        [](const SlotEntry& slot) { return !slot.valid; });
+    return record_size + (reuses_slot ? 0 : 6) <= FreeSpace();
 }
 
 int Page::InsertRecord(const char* data, uint16_t len) {
-    // We need space for: the record data + one new slot entry (6 bytes)
-    uint16_t needed = len + 6;
-    
-    // Calculate available space
-    uint16_t slot_dir_end = HEADER_SIZE
-        + static_cast<uint16_t>(slots_.size()) * 6;
-    uint16_t data_start = free_offset_;
-    
-    // Records are stored starting from free_offset_ going forward
-    uint16_t available = (PAGE_SIZE > data_start + slot_dir_end + 6) 
-                         ? (PAGE_SIZE - data_start - static_cast<uint16_t>(slots_.size() + 1) * 6 - HEADER_SIZE)
-                         : 0;
-    
-    // Simple check: can we fit the record?
-    uint16_t total_used = HEADER_SIZE 
-        + static_cast<uint16_t>(slots_.size() + 1) * 6 
-        + (free_offset_ - HEADER_SIZE) + len;
-    
-    if (total_used > PAGE_SIZE) {
-        return -1; // no space
-    }
-
     // Check for a reusable deleted slot
     int reuse_slot = -1;
     for (int i = 0; i < static_cast<int>(slots_.size()); i++) {
@@ -57,6 +39,8 @@ int Page::InsertRecord(const char* data, uint16_t len) {
             break;
         }
     }
+
+    if (!HasSpace(len)) return -1;
 
     // Write record data at free_offset_
     uint16_t record_offset = free_offset_;

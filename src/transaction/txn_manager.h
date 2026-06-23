@@ -4,7 +4,6 @@
 #include "transaction/transaction.h"
 #include "transaction/lock_manager.h"
 
-#include <atomic>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -38,10 +37,13 @@ public:
     // Get a transaction by ID
     Transaction* GetTransaction(txn_id_t txn_id);
 
+    LockManager* GetLockManager() const { return lock_mgr_; }
+    WALManager* GetWALManager() const { return wal_mgr_; }
+
 private:
     LockManager*                                               lock_mgr_;
     WALManager*                                                wal_mgr_;
-    std::atomic<txn_id_t>                                      next_txn_id_{1};
+    txn_id_t                                                   next_txn_id_ = 1;
     std::unordered_map<txn_id_t, std::unique_ptr<Transaction>> active_txns_;
     std::mutex                                                 mutex_;
 };

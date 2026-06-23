@@ -1,7 +1,11 @@
 # CMake & Build Artifacts
 build/
+build-*/
+cmake-build-*/
+Testing/
 CMakeCache.txt
 CMakeFiles/
+compile_commands.json
 *.cmake
 Makefile
 *.sln
@@ -19,6 +23,9 @@ Makefile
 *.dylib
 *.a
 *.lib
+*.pdb
+*.ilk
+*.exp
 
 # MiniDB runtime files
 *.db
