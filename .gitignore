@@ -1,0 +1,31 @@
+# CMake & Build Artifacts
+build/
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+Makefile
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# Compiled Object files
+*.o
+*.obj
+
+# Compiled Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# MiniDB runtime files
+*.db
+*.log
+
+# IDE & OS Files
+.vscode/
+.vs/
+.idea/
+.DS_Store

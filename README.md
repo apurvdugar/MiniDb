@@ -27,9 +27,9 @@ Build a functioning relational database engine from foundational components, int
 
 | Name | Roll Number | Scaler Email |
 |------|-------------|-------|
-| Apurv Dugar | 24BCS10107 | `[Your Scaler Email]` |
-| Akshat Sipany | 24BCS10059 | `[Your Scaler Email]` |
-| Harshita Hirawat | 24BCS10044 | `[Your Scaler Email]` |
+| Apurv Dugar | 24BCS10107 | `apurv.24bcs10107@sst.scaler.com` |
+| Akshat Sipany | 24BCS10059 | `akshat.24bcs10059@sst.scaler.com` |
+| Harshita Hirawat | 24BCS10044 | `harshita.24bcs10044@sst.scaler.com` |
 
 ---
 
@@ -459,5 +459,3 @@ MINI-DB/
 └── benchmarks/
     └── benchmark.cpp
 ```
-# MiniDb
-# MiniDb
