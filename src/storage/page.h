@@ -49,6 +49,9 @@ public:
     // Delete record at slot (marks slot invalid, does NOT reclaim space).
     bool DeleteRecord(slot_id_t slot);
 
+    // True when a record and its slot entry fit on this page.
+    bool HasSpace(uint16_t record_size) const;
+
     uint16_t GetNumRecords() const { return num_records_; }
     uint16_t GetNumSlots()   const { return static_cast<uint16_t>(slots_.size()); }
 

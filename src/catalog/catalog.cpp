@@ -13,6 +13,12 @@ TableInfo* Catalog::CreateTable(const std::string& name, const Schema& schema,
     info->primary_index = std::make_unique<BPlusTree>(64);
     info->pk_col  = 0; // first column is always the primary key
 
+    info->heap_file->ScanAll([&](const RecordId& rid, const Row& row) {
+        if (!row.empty() && std::holds_alternative<int64_t>(row[0])) {
+            info->primary_index->Insert(std::get<int64_t>(row[0]), rid);
+        }
+    });
+
     TableInfo* ptr = info.get();
     tables_[name] = std::move(info);
     return ptr;

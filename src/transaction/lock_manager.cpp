@@ -45,14 +45,12 @@ bool LockManager::LockExclusive(Transaction* txn, const std::string& resource) {
 
     auto& queue = lock_table_[resource];
 
-    // Check if this txn already holds a lock on this resource
-    for (auto& r : queue.requests) {
-        if (r.txn_id == txn->GetTxnId()) {
-            if (r.mode == LockMode::EXCLUSIVE) return true; // already exclusive
-            // Upgrade from shared to exclusive: treated as new exclusive request
-            // (simple approach: remove old, add new)
-            break;
-        }
+    // Remove this transaction's shared request before requesting an upgrade.
+    for (auto it = queue.requests.begin(); it != queue.requests.end(); ++it) {
+        if (it->txn_id != txn->GetTxnId()) continue;
+        if (it->mode == LockMode::EXCLUSIVE) return true;
+        queue.requests.erase(it);
+        break;
     }
 
     LockRequest req{txn->GetTxnId(), LockMode::EXCLUSIVE, false};

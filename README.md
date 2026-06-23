@@ -1,461 +1,153 @@
-# MiniDB — Minimalist Relational Database Engine
+# MiniDB - Advanced DBMS Capstone
 
-> **Advanced Database Management Systems — Capstone Project**
-> **Extension Track A: Performance (Vectorized/Batch Execution)**
+MiniDB is a small relational database written in C++17. It implements the
+required storage, indexing, SQL, optimization, transaction, concurrency, and
+recovery concepts. The chosen extension is **Track A: Batch Execution**.
 
----
+## 1. Project and team
 
-## 1. Project Overview
+**Team name:** `Team_MiniDB`
 
-### Problem Statement
+| Name | Roll number | Scaler email |
+|---|---|---|
+| Apurv Dugar | 24BCS10107 | apurv.24bcs10107@sst.scaler.com |
+| Akshat Sipany | 24BCS10059 | akshat.24bcs10059@sst.scaler.com |
+| Harshita Hirawat | 24BCS10044 | harshita.24bcs10044@sst.scaler.com |
 
-Build a functioning relational database engine from foundational components, integrating storage, indexing, query processing, transactions, and recovery into a coherent system.
+The goal is correctness and clear database internals, not a large SQL feature
+set. MiniDB supports `CREATE TABLE`, `INSERT`, `SELECT`, `WHERE`, `JOIN`, and
+`DELETE`.
 
-### Goals
+## 2. Architecture
 
-- Implement all core database subsystems (storage, indexing, execution, optimization, transactions, recovery)
-- Demonstrate understanding of database internals and engineering trade-offs
-- Deliver a working system with correct, simple, and maintainable code
+```text
+SQL -> Parser -> Optimizer -> Execution operators
+                                |        |
+                             B+ tree  Heap file
+                                         |
+                                  Buffer pool -> Disk
 
-### Chosen Extension Track
-
-**Track A — Performance**: Vectorized/Batch execution engine that processes rows in chunks (batches of 128 tuples) instead of one-at-a-time, reducing per-row overhead and improving CPU cache locality.
-
-### Team Information
-
-**Team Name**: `Team_MiniDB`
-
-| Name | Roll Number | Scaler Email |
-|------|-------------|-------|
-| Apurv Dugar | 24BCS10107 | `apurv.24bcs10107@sst.scaler.com` |
-| Akshat Sipany | 24BCS10059 | `akshat.24bcs10059@sst.scaler.com` |
-| Harshita Hirawat | 24BCS10044 | `harshita.24bcs10044@sst.scaler.com` |
-
----
-
-## 2. System Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      SQL Interface                           │
-│              (Simple string-based parser)                    │
-├──────────────────────────────────────────────────────────────┤
-│                    Query Optimizer                           │
-│          (Selectivity estimation, scan routing)              │
-├──────────────────────────────────────────────────────────────┤
-│                  Execution Engine                            │
-│        (Batch/Vectorized operators — Track A)                │
-│  ┌──────────┐ ┌───────────┐ ┌────────┐ ┌──────────────────┐  │
-│  │ SeqScan  │ │ IndexScan │ │ Filter │ │ NestedLoopJoin   │  │
-│  └──────────┘ └───────────┘ └────────┘ └──────────────────┘  │
-├──────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐        ┌──────────────────────────┐     │
-│  │  B+ Tree Index  │        │  HeapFile (Table Store)  │     │
-│  └─────────────────┘        └──────────────────────────┘     │
-├──────────────────────────────────────────────────────────────┤
-│              Buffer Pool Manager (LRU, 64 frames)            │
-├──────────────────────────────────────────────────────────────┤
-│                Disk Manager (Page I/O)                       │
-├──────────────────────────────────────────────────────────────┤
-│  ┌────────────────────────┐  ┌─────────────────────────┐     │
-│  │ Transaction Manager    │  │  WAL Recovery Manager   │     │
-│  │ (Strict 2PL)           │  │  (REDO-only)            │     │
-│  └────────────────────────┘  └─────────────────────────┘     │
-└──────────────────────────────────────────────────────────────┘
+Executor -> Locks -> Transaction -> WAL -> Commit / Recovery
 ```
 
-### Major Modules
+Each module has one responsibility and the implementation is split into short
+files under `src/`.
 
-| Module | Directory | Responsibility |
-|--------|-----------|---------------|
-| Storage | `src/storage/` | Page management, disk I/O, buffer pool, heap files |
-| Index | `src/index/` | B+ Tree for primary key indexing |
-| Catalog | `src/catalog/` | Table metadata and schema management |
-| Execution | `src/execution/` | SQL parsing, batch operators, query execution |
-| Optimizer | `src/optimizer/` | Cost-based scan selection and join ordering |
-| Transaction | `src/transaction/` | Strict 2PL locking, transaction lifecycle |
-| Recovery | `src/recovery/` | Write-Ahead Logging and REDO recovery |
+For a query, the parser first creates a statement object. The optimizer chooses
+a scan and join order, the executor runs the operator tree, and the storage
+layer reads records through the buffer pool. For a write, the executor also
+acquires a lock and adds a WAL record before the transaction commits.
 
-### Data Flow
+## 3. Storage layer
 
-1. User submits SQL string → **Parser** produces AST
-2. **Optimizer** analyzes predicates, estimates selectivity, chooses scan strategy
-3. **Executor** builds operator tree (SeqScan/IndexScan → Filter → Join → Projection)
-4. Operators exchange **TupleBatch** objects (128 rows per batch)
-5. Operators access data through **HeapFile** → **BufferPool** → **DiskManager**
-6. All mutations are logged via **WAL** before being applied
+- Data is stored in fixed 4 KB slotted pages.
+- The 8-byte page header stores record count, free position, and next-page ID.
+- Each slot stores a record's offset, length, and valid/deleted flag.
+- Heap files link multiple pages and allocate a new page when the last is full.
+- The buffer pool uses pin counts, dirty flags, and LRU replacement.
+- Existing heap files can be reopened after restarting MiniDB.
 
----
+Rows use a simple pipe-separated text format so page contents are easy to
+understand and demonstrate.
 
-## 3. Storage Layer
+## 4. B+ tree index
 
-### Page Format
+The first integer column is treated as the primary key. The in-memory B+ tree
+supports search, insert, delete, and range search. Leaf nodes are linked for
+range queries. Search, insert, and delete are normally `O(log n)`. The index is
+rebuilt by scanning the heap file after restart, keeping disk storage simple.
 
-- **Fixed 4 KB pages** (`PAGE_SIZE = 4096`)
-- **Slotted page layout**:
-  - Header (8 bytes): `num_records`, `free_offset`, `next_page_id`
-  - Record data grows forward from the header
-  - Slot directory stored at the end of the page, growing backward
-  - Each slot entry: `offset (2B) + length (2B) + valid flag (2B) = 6 bytes`
+## 5. SQL execution
 
-### Heap Files
+The parser creates a small statement object. The executor builds sequential
+scan, index scan, filter, projection, or nested-loop join operators.
+Operators follow `Open -> Next -> Close`; `Next` returns one batch of rows.
 
-- Each table is stored as a **linked list of pages**
-- Records are serialized as pipe-delimited text (e.g., `1|Alice|22|3.8`)
-- Operations: `InsertTuple`, `GetTuple`, `DeleteTuple`, `ScanAll`
-- Each table gets its own disk file (e.g., `students.db`)
-
-### Buffer Pool
-
-- **LRU replacement policy** using `std::list` + `std::unordered_map` for O(1) operations
-- Default pool size: **64 frames**
-- Pin counting prevents eviction of in-use pages
-- Dirty pages are flushed on eviction or explicit flush
-
----
-
-## 4. Indexing
-
-### B+ Tree Design
-
-- **In-memory B+ tree** on `int64_t` primary keys
-- Configurable order (default: 64 keys per node)
-
-### Node Structure
-
-- **Internal nodes**: `keys[]` + `children[]` (pointers to child nodes)
-- **Leaf nodes**: `keys[]` + `values[]` (RecordId mapping) + `next` (sibling pointer)
-- Sibling pointers enable efficient range scans
-
-### Operations
-
-| Operation | Complexity | Notes |
-|-----------|-----------|-------|
-| Search | O(log n) | Traverse from root to leaf |
-| Insert | O(log n) | Split leaf/internal nodes when full |
-| Delete | O(log n) | Lazy deletion (no rebalancing) |
-| Range Scan | O(log n + k) | Follow sibling pointers |
-
-### Search Path
-
-1. Start at root
-2. At each internal node, binary search for the correct child pointer
-3. Follow pointer to next level
-4. At leaf node, scan keys for match
-5. For range queries, follow `next` pointers across leaves
-
----
-
-## 5. Query Execution
-
-### Parser
-
-Dynamic string-splitting SQL parser supporting:
-- `CREATE TABLE table (col1 type, col2 type...)`
-- `SELECT col1, col2 FROM table WHERE col op value [AND/OR ...]`
-- `SELECT * FROM t1 JOIN t2 ON t1.col = t2.col [WHERE ...]`
-- `INSERT INTO table VALUES (v1, v2, ...)`
-- `DELETE FROM table WHERE col op value`
-
-Predicates support: `=`, `!=`, `<`, `<=`, `>`, `>=` with `AND`/`OR` logical groupings.
-
-### Query Plan Generation
-
-1. Parser produces AST (`SelectStmt`, `InsertStmt`, `DeleteStmt`)
-2. Optimizer analyzes predicates and decides scan strategy
-3. Executor builds operator tree bottom-up:
-   - Source: `SeqScanOperator` or `IndexScanOperator`
-   - Filter: `FilterOperator` (if WHERE predicates exist)
-   - Join: `NestedLoopJoinOperator` (if JOIN clause present)
-   - Projection: `ProjectionOperator` (column selection)
-
-### Operator Execution (Track A — Vectorized)
-
-All operators implement the **batch iterator interface**:
-```cpp
-class Operator {
-    void Open();
-    TupleBatch Next();   // returns batch of up to 128 rows
-    void Close();
-};
+```sql
+INSERT INTO students VALUES (1, 'Alice', 22, 3.8)
+SELECT name FROM students WHERE id = 1
+SELECT * FROM students JOIN courses ON students.id = courses.student_id
+DELETE FROM students WHERE id = 1
 ```
 
-**TupleBatch** (`std::vector<Row>`, max 128 rows) is the unit of exchange between operators, replacing the traditional one-row-at-a-time Volcano model. Benefits:
-- Amortizes virtual function call overhead
-- Improves CPU cache locality
-- Enables future SIMD/vectorized predicate evaluation
-
----
+Predicates support `=`, `!=`, `<`, `<=`, `>`, `>=`, `AND`, and `OR`.
 
 ## 6. Optimizer
 
-### Cost Estimation
+The optimizer deliberately uses simple estimates:
 
-The optimizer uses a simple cost model:
-- **Sequential Scan cost** = number of pages in the table
-- **Index Scan cost** = tree height + number of matching pages
+- primary-key equality: `1 / number of rows`;
+- range condition: about one-third of rows;
+- use an index for selective primary-key conditions;
+- place the smaller table first in a two-table nested-loop join.
 
-### Selectivity Estimation
+The demo prints whether a sequential scan or index scan was selected.
 
-| Predicate Type | Selectivity |
-|----------------|-------------|
-| Equality on PK (`id = 3`) | `1 / num_rows` |
-| Equality on non-PK | `1 / min(num_rows, 10)` |
-| Range predicate | `1 / 3` (heuristic) |
+## 7. Transactions and concurrency
 
-### Decision Rule
+MiniDB uses strict two-phase locking with table-level shared and exclusive
+locks. Locks are released only at commit or abort. A one-second timeout handles
+deadlocks simply. The demo creates a circular wait between two transactions so
+both timeout paths can be seen.
 
-- If `selectivity < 0.15` AND an index exists on the predicate column → **Index Scan**
-- Otherwise → **Sequential Scan**
+Insert and delete operations are kept in a transaction's pending-write list.
+Commit writes the commit log record, applies the pending writes, flushes pages,
+and releases locks. Abort discards the list and releases locks. This keeps undo
+logic small and understandable.
 
-### Join Ordering
+## 8. WAL and crash recovery
 
-For 2-table joins:
-- Estimate cardinality of each table
-- Place the **smaller table as the outer** (left) relation in nested loop join
-- This minimizes the number of inner-loop iterations
+The WAL contains `BEGIN`, `INSERT`, `DELETE`, `COMMIT`, and `ABORT` records.
+Recovery reads the log, identifies committed transactions, and repeats only
+their inserts and deletes. Aborted or incomplete transactions are ignored.
 
----
+Recovery therefore has two simple phases: find committed transaction IDs, then
+replay their changes in log order. The demo recovers into fresh files and
+prints the number of restored rows.
 
-## 7. Transactions & Concurrency
+## 9. Extension Track A - batch execution
 
-### Locking Strategy
+Normal operators pass up to 512 rows at a time. Filters reuse the same batch
+buffer. Row-at-a-time operators are retained for comparison.
 
-- **Strict Two-Phase Locking (2PL)**
-- Lock granularity: **table-level** (SHARED / EXCLUSIVE)
-- Locks are acquired before data access
-- Locks are released **only on commit or abort** (strict phase)
+For 10K-200K rows, batch mode was about `1.01x-1.09x` faster in the latest
+run. It uses fewer operator calls while keeping the implementation simple.
+Detailed measurements are in [benchmarks/README.md](benchmarks/README.md).
 
-### Isolation Guarantees
+## 10. Benchmarks and tests
 
-- **Serializable isolation**: Strict 2PL ensures that the schedule is conflict-serializable
-- No dirty reads, no non-repeatable reads, no phantom reads (at table-level granularity)
+The benchmark runs a three-filter in-memory query 50 times for 10K-200K rows.
+Disk loading is excluded so it compares the execution models directly. It
+reports wall time, CPU time, and approximate operator-buffer memory, and also
+verifies that both modes return the same row count. Tests cover:
 
-### Deadlock Handling
-
-- **Timeout-based detection**: if a lock request waits longer than 1 second, the requesting transaction is aborted
-- This avoids the complexity of a wait-for graph while being effective for the demo workload
-
-### Transaction API
-
-```
-BEGIN → txn_id
-COMMIT(txn_id) → flush WAL, release all locks
-ABORT(txn_id) → release all locks, discard changes
-```
-
----
-
-## 8. Recovery
-
-### WAL Design
-
-- **Append-only log file** (`wal.log`)
-- Log records written **before** any data page modifications (WAL protocol)
-- Log flushed to disk on every commit (FORCE policy)
-
-### Log Records
-
-Each record is stored as a pipe-delimited line:
-```
-LSN|TXN_ID|TYPE|TABLE_NAME|KEY_DATA|RECORD_DATA
-```
-
-Log types: `BEGIN`, `INSERT`, `DELETE`, `COMMIT`, `ABORT`
-
-### Recovery Policy: FORCE + NO-STEAL
-
-| Policy | Meaning | Impact |
-|--------|---------|--------|
-| **FORCE** | Dirty pages flushed at commit | All committed data is on disk |
-| **NO-STEAL** | No dirty pages written before commit | No uncommitted data on disk |
-
-This combination means recovery only needs **REDO** (no UNDO required).
-
-### Crash Recovery Procedure
-
-1. **Analysis phase**: Scan log to identify committed and aborted transactions
-2. **REDO phase**: Replay all INSERT/DELETE operations for committed transactions
-3. **Result**: Database state is restored to the last consistent committed state
-
----
-
-## 9. Extension Track — Track A: Performance
-
-### Motivation
-
-Traditional row-at-a-time (Volcano) execution incurs significant per-row overhead:
-- Virtual function dispatch for each row
-- Poor CPU cache utilization
-- Branch misprediction on tight filter loops
-
-Batch/vectorized execution amortizes this overhead by processing multiple rows per operator call.
-
-### Design
-
-- **TupleBatch**: `std::vector<Row>` with configurable batch size (128 rows)
-- All operators (`SeqScan`, `Filter`, `Join`, `Projection`) exchange batches
-- Row-at-a-time variants (`SeqScanRowOperator`, `FilterRowOperator`) implemented for comparison
-
-### Results
-
-Benchmark compares batch vs. row-at-a-time on scan+filter workloads with varying table sizes (1K–50K rows). Expected and observed improvements:
-
-- **Reduced function call overhead**: Each `Next()` call processes up to 128 rows
-- **Better cache locality**: Batch of rows kept in contiguous memory
-- **Measurable speedup**: 1.1x–1.5x+ improvement for larger datasets
-
-*(Run `./benchmark` to generate actual numbers for your hardware)*
-
----
-
-## 10. Benchmarks
-
-### Experimental Setup
-
-- **Operation**: Sequential scan + filter (predicate: `value > 500`, ~50% selectivity)
-- **Workloads**: 1,000 / 5,000 / 10,000 / 50,000 rows
-- **Iterations**: 3 runs averaged (1 warmup)
-- **Metric**: Wall-clock time (microseconds), throughput (rows/sec), speedup ratio
-
-### Results
-
-Run the benchmark to generate results:
-```bash
-./benchmark
-```
-
-Sample output format:
-```
-  Rows     Batch (μs)     Row (μs)       Speedup     Batch (rows/s) Row (rows/s)
-  ──────────────────────────────────────────────────────────────────────────────
-  1000     xxx            xxx            x.xx        xxx            xxx
-  5000     xxx            xxx            x.xx        xxx            xxx
-  10000    xxx            xxx            x.xx        xxx            xxx
-  50000    xxx            xxx            x.xx        xxx            xxx
-```
-
-### Analysis
-
-Batch processing provides measurable speedup due to:
-1. Amortized virtual call overhead (128x fewer `Next()` calls)
-2. Improved cache utilization (batch fits in L1/L2 cache)
-3. Speedup grows with dataset size as fixed overhead is amortized over more rows
-
----
+- multi-page storage and restart;
+- B+ tree search, range search, and delete;
+- SQL, joins, commit, and abort;
+- lock timeout/deadlock behavior;
+- recovery of committed changes only.
 
 ## 11. Limitations
 
-### Missing Features
-- No `UPDATE` statement support
-- No aggregate functions (`COUNT`, `SUM`, `AVG`, etc.)
-- No `ORDER BY` or `GROUP BY`
-- No secondary indexes (only primary key B+ tree)
-- No multi-column predicates in the optimizer
-- No `CREATE TABLE` SQL syntax (tables created programmatically)
+- Table schemas are registered by the application, not stored on disk.
+- The B+ tree is rebuilt after restart.
+- A transaction cannot read its own insert until that transaction commits.
+- Locks are table-level and query execution is single-threaded.
+- No `UPDATE`, aggregates, sorting, grouping, or secondary index.
+- B+ tree delete does not merge underfull nodes.
+- The SQL and WAL text formats do not support every quoted special character.
 
-### Scalability Limits
-- Table-level locking limits concurrent write throughput
-- In-memory B+ tree not persisted across restarts
-- Buffer pool is per-table (not shared across all tables)
-- Single-threaded query execution
+## 12. Build and run
 
-### Future Improvements
-- Row-level locking for finer concurrency
-- Persistent B+ tree (stored in pages)
-- Hash join and sort-merge join operators
-- Expression evaluation with SIMD vectorization
-- Shared buffer pool across all tables
-- SQL `CREATE TABLE` / `ALTER TABLE` support
-
----
-
-## 12. How to Run
-
-### Dependencies
-
-- **C++17** compiler (GCC 8+, Clang 7+, MSVC 2019+)
-- **CMake** 3.16 or higher
-- No external database libraries required
-
-### Build Steps
+Requirements: CMake 3.16+ and a C++17 compiler. No external libraries are used.
 
 ```bash
-# Clone and navigate to project
-cd MINI-DB
-
-# Create build directory
-mkdir build && cd build
-
-# Configure
-cmake .. -DCMAKE_BUILD_TYPE=Release
-
-# Build
-cmake --build . --config Release
+cmake -S . -B build
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+./build/Release/minidb
+./build/Release/benchmark
 ```
 
-### Run the Demo
-
-```bash
-# From the build directory:
-./minidb          # or .\Release\minidb.exe on Windows
-```
-
-This will prompt you to choose between running the automated tests (`demo`) or starting a clean terminal (`manual`).
-If you choose `demo`, it will run the full demonstration:
-1. Creates tables (`students`, `courses`, `teachers` via SQL)
-2. Inserts sample data with transactions
-3. Runs SELECT queries (seq scan, index scan, joins, AND/OR logic)
-4. Demonstrates DELETE
-5. Shows concurrent transaction locking
-6. Demonstrates WAL crash recovery
-
-After the demo (or if you choose `manual`), it launches an **Interactive Terminal**:
-- Type `minidb>` queries like `SELECT * FROM students`
-- Use `/tables` to see all database tables
-- Use `/schema <tablename>` to view table structure
-- Type `exit` to close.
-
-### Run the Benchmark
-
-```bash
-./benchmark       # or .\Release\benchmark.exe on Windows
-```
-
-Compares batch/vectorized vs. row-at-a-time execution across multiple workload sizes.
-
-### Project Structure
-
-```
-MINI-DB/
-├── CMakeLists.txt
-├── README.md
-├── src/
-│   ├── common/types.h
-│   ├── storage/
-│   │   ├── page.h / page.cpp
-│   │   ├── disk_manager.h / disk_manager.cpp
-│   │   ├── buffer_pool.h / buffer_pool.cpp
-│   │   └── heap_file.h / heap_file.cpp
-│   ├── index/
-│   │   └── bplus_tree.h / bplus_tree.cpp
-│   ├── catalog/
-│   │   └── catalog.h / catalog.cpp
-│   ├── execution/
-│   │   ├── ast.h
-│   │   ├── parser.h / parser.cpp
-│   │   ├── batch.h
-│   │   ├── operators.h / operators.cpp
-│   │   └── executor.h / executor.cpp
-│   ├── optimizer/
-│   │   └── optimizer.h / optimizer.cpp
-│   ├── transaction/
-│   │   ├── transaction.h
-│   │   ├── lock_manager.h / lock_manager.cpp
-│   │   └── txn_manager.h / txn_manager.cpp
-│   ├── recovery/
-│   │   └── wal.h / wal.cpp
-│   └── main.cpp
-└── benchmarks/
-    └── benchmark.cpp
-```
+Choose `demo` to show SQL, index use, commit/abort, deadlock timeout, and crash
+recovery. Choose `manual` to reopen the existing database and enter SQL.

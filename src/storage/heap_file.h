@@ -36,6 +36,8 @@ public:
     // Number of tuples (approximate, for optimizer)
     uint32_t GetTupleCount() const { return tuple_count_; }
 
+    void Flush() { bpm_->FlushAll(); }
+
     const Schema& GetSchema() const { return schema_; }
     const std::string& GetTableName() const { return table_name_; }
 
@@ -49,6 +51,7 @@ private:
     BufferPoolManager* bpm_;
     Schema             schema_;
     page_id_t          first_page_id_ = INVALID_PAGE_ID;
+    page_id_t          last_page_id_  = INVALID_PAGE_ID;
     uint32_t           tuple_count_   = 0;
 
     // Find a page with enough free space, or allocate a new one

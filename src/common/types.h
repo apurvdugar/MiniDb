@@ -10,7 +10,7 @@ namespace minidb {
 // ── Size constants ──────────────────────────────────────────
 constexpr uint32_t PAGE_SIZE       = 4096;      // 4 KB pages
 constexpr uint32_t BUFFER_POOL_SIZE = 64;       // number of frames
-constexpr uint32_t BATCH_SIZE      = 128;       // rows per batch (Track A)
+constexpr uint32_t BATCH_SIZE      = 512;       // rows per batch (Track A)
 constexpr uint32_t INVALID_PAGE_ID = UINT32_MAX;
 
 // ── ID types ────────────────────────────────────────────────
