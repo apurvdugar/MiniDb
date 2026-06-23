@@ -6,7 +6,7 @@ recovery concepts. The chosen extension is **Track A: Batch Execution**.
 
 ## 1. Project and team
 
-**Team name:** `Team_MiniDB`
+**Team name:** `Deadlock Breakers`
 
 | Name | Roll number | Scaler email |
 |---|---|---|
